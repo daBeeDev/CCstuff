@@ -1,9 +1,9 @@
--- goToCoords.lua
--- Usage:
---   goToCoords x y z
---   goToCoords coords.txt  (file containing X, Y, Z on separate lines)
+-- goToCoordsSimpleGPSStop.lua
+-- Moves to target coordinates assuming a clear path
+-- Stops if GPS after X or Z movement doesn't match expected
+-- Coordinates can be passed as arguments or in a file (X,Y,Z each on a separate line)
 
--- Function to read coordinates from a file (each on its own line)
+-- Read coordinates from file
 local function readCoordsFromFile(filename)
     if not fs.exists(filename) then
         print("File not found: "..filename)
@@ -14,13 +14,11 @@ local function readCoordsFromFile(filename)
     local y = tonumber(file.readLine())
     local z = tonumber(file.readLine())
     file.close()
-    if x and y and z then
-        return x, y, z
-    end
+    if x and y and z then return x, y, z end
     return nil
 end
 
--- Function to get coordinates from arguments
+-- Get target coordinates
 local function getTargetCoords(args)
     if #args == 1 then
         return readCoordsFromFile(args[1])
@@ -31,75 +29,84 @@ local function getTargetCoords(args)
     end
 end
 
--- Movement functions
+-- Movement helpers
 local function moveForward(steps)
     for i = 1, steps do
-        while not turtle.forward() do
-            turtle.dig()
-            sleep(0.5)
-        end
+        turtle.forward()
     end
 end
 
 local function moveUp(steps)
     for i = 1, steps do
-        while not turtle.up() do
-            turtle.digUp()
-            sleep(0.5)
-        end
+        turtle.up()
     end
 end
 
 local function moveDown(steps)
     for i = 1, steps do
-        while not turtle.down() do
-            turtle.digDown()
-            sleep(0.5)
-        end
+        turtle.down()
     end
 end
 
--- Main function
+local function faceAxis(axis, delta)
+    if axis == "X" then
+        if delta > 0 then turtle.turnRight() turtle.turnRight() end -- +X
+    elseif axis == "Z" then
+        if delta > 0 then turtle.turnRight() else turtle.turnLeft() end
+    end
+end
+
+-- Main
 local args = {...}
 local targetX, targetY, targetZ = getTargetCoords(args)
-
 if not targetX then
-    print("Usage: goToCoords x y z OR goToCoords filename.txt")
+    print("Usage: goToCoords x y z OR goToCoords file.txt")
     return
 end
 
--- Get current position
+-- Get current coordinates
 local startX, startY, startZ = gps.locate()
 if not startX then
-    print("GPS not found! Make sure a GPS network is available.")
+    print("GPS not found!")
     return
 end
 
--- Move vertically first
-if targetY > startY then
-    moveUp(targetY - startY)
-elseif targetY < startY then
-    moveDown(startY - targetY)
-end
+-- Calculate differences
+local deltaX = targetX - startX
+local deltaY = targetY - startY
+local deltaZ = targetZ - startZ
 
 -- Move X axis
-if targetX ~= startX then
-    if targetX > startX then
-        turtle.turnRight()
-    else
-        turtle.turnLeft()
-    end
-    moveForward(math.abs(targetX - startX))
+if deltaX ~= 0 then
+    faceAxis("X", deltaX)
+    moveForward(math.abs(deltaX))
+end
+
+-- GPS check after X
+local currentX, currentY, currentZ = gps.locate()
+if currentX ~= targetX then
+    print("Error: X coordinate mismatch! Expected:", targetX, "Got:", currentX)
+    return
 end
 
 -- Move Z axis
-if targetZ ~= startZ then
-    if targetZ > startZ then
-        turtle.turnRight()
-    else
-        turtle.turnLeft()
-    end
-    moveForward(math.abs(targetZ - startZ))
+if deltaZ ~= 0 then
+    faceAxis("Z", deltaZ)
+    moveForward(math.abs(deltaZ))
 end
 
-print("Arrived at coordinates:", targetX, targetY, targetZ)
+-- GPS check after Z
+currentX, currentY, currentZ = gps.locate()
+if currentZ ~= targetZ then
+    print("Error: Z coordinate mismatch! Expected:", targetZ, "Got:", currentZ)
+    return
+end
+
+-- Move Y axis last
+if deltaY > 0 then
+    moveUp(deltaY)
+elseif deltaY < 0 then
+    moveDown(-deltaY)
+end
+
+print("Arrived at:", targetX, targetY, targetZ)
